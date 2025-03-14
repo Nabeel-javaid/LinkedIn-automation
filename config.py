@@ -17,9 +17,7 @@ class Config:
                 'https://www.reddit.com/r/machinelearning/.rss',
                 'https://www.artificialintelligence-news.com/feed/',
                 'https://blog.research.google/feeds/posts/default?alt=rss',
-                'http://export.arxiv.org/rss/cs.AI',
-                'http://export.arxiv.org/rss/cs.CL',
-                'https://huggingface.co/blog/feed.xml'
+                'http://export.arxiv.org/rss/cs.AI'
             ],
             'apis': {
                 'newsapi': {

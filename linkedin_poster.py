@@ -8,19 +8,23 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class LinkedInPoster:
-    def __init__(self):
-        # LinkedIn API credentials
-        self.client_id = os.environ.get('LINKEDIN_CLIENT_ID')
-        self.client_secret = os.environ.get('LINKEDIN_CLIENT_SECRET')
-        self.redirect_uri = 'http://localhost:8000/callback'
+    def __init__(self, auth):
+        """
+        Initialize LinkedIn Poster with authentication details
+        
+        Args:
+            auth: LinkedInAuth object containing credentials and tokens
+        """
+        # Use auth object for credentials
+        self.client_id = auth.client_id
+        self.client_secret = auth.client_secret
+        self.redirect_uri = auth.redirect_uri
+        self.access_token = auth.access_token
         
         # LinkedIn API endpoints
         self.auth_url = "https://www.linkedin.com/oauth/v2/authorization"
         self.token_url = "https://www.linkedin.com/oauth/v2/accessToken"
         self.api_url = "https://api.linkedin.com/v2"
-        
-        # Store access token
-        self.access_token = None
         
         # Flag for callback completion
         self.auth_completed = False
@@ -225,8 +229,8 @@ class LinkedInPoster:
 # Example usage
 if __name__ == "__main__":
     # Check if credentials are set
-    if not os.environ.get('LINKEDIN_CLIENT_ID') or not os.environ.get('LINKEDIN_CLIENT_SECRET'):
-        print("Please set the LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.")
+    # if not os.environ.get('LINKEDIN_CLIENT_ID') or not os.environ.get('LINKEDIN_CLIENT_SECRET'):
+    #     print("Please set the LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.")
         # exit(1)
     
     # Create LinkedIn poster and authenticate

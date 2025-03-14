@@ -317,3 +317,113 @@ Check out the details: {link}
         except Exception as e:
             print(f"Exception with Groq API: {str(e)}")
             return self._generate_better_fallback_post(article)
+
+    def generate_comment_reply(self, comment, article_title, personal_tone=True):
+        """Generate a reply to a comment on a LinkedIn post
+        
+        Args:
+            comment (str): The comment to reply to
+            article_title (str): Title of the article that was shared
+            personal_tone (bool): Whether to use a more personal tone in the reply
+        
+        Returns:
+            str: The generated reply
+        """
+        if not self.api_key:
+            print("Groq API key not found. Using fallback reply.")
+            return self._generate_fallback_reply(comment, article_title)
+        
+        # Create prompt for generating comment reply
+        prompt = f"""
+        You are a professional AI specialist responding to a comment on your LinkedIn post about this AI news article: "{article_title}".
+        
+        The comment you're responding to is:
+        "{comment}"
+        
+        Generate a thoughtful, authentic reply that:
+        
+        1. Sounds like a real person wrote it, not AI
+        2. Is appreciative and engaging
+        3. Adds value through personal insight or additional information
+        4. Is concise (50-100 words maximum)
+        5. Potentially asks a follow-up question if appropriate
+        
+        WRITING STYLE:
+        - Conversational and authentic
+        - Use "I" statements occasionally
+        - Sound genuinely interested in the commenter's perspective
+        - Be slightly informal but still professional
+        - Include personality through word choice and phrasing
+        - Use 1-2 simple emojis if appropriate (not at beginning of sentences)
+        
+        AVOID:
+        - Generic, template-style responses
+        - Overly formal language
+        - Anything that sounds AI-generated
+        - Excessive use of emojis or exclamation marks
+        - Being argumentative or condescending
+        - Promoting anything
+        - Using too manu emojies
+        - Writing lenghty posts
+        
+        Return ONLY the reply text with no additional explanations or formatting.
+        """
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        # Use primarily llama3 for more natural replies
+        model = "llama3-70b-8192"
+        
+        data = {
+            "model": model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 300
+        }
+        
+        try:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                reply_content = result['choices'][0]['message']['content'].strip()
+                
+                # Quality check
+                if len(reply_content) < 10:
+                    print("Warning: Generated reply is too short, regenerating...")
+                    return self.generate_comment_reply(comment, article_title, personal_tone)
+                
+                return reply_content
+            else:
+                print(f"Error with Groq API: {response.status_code}")
+                print(f"Response: {response.text}")
+                return self._generate_fallback_reply(comment, article_title)
+        except Exception as e:
+            print(f"Exception with Groq API: {str(e)}")
+            return self._generate_fallback_reply(comment, article_title)
+
+    def _generate_fallback_reply(self, comment, article_title):
+        """Generate a fallback reply if LLM generation fails"""
+        # Create an array of template responses to randomly choose from
+        templates = [
+            "Thanks for sharing your thoughts! I appreciate your perspective on this topic.",
+            
+            "That's an interesting take - thanks for adding to the conversation!",
+            
+            "Thanks for engaging with the post! Your input adds a valuable dimension to this topic.",
+            
+            "Really appreciate you taking the time to comment. It's great to hear different viewpoints on these developments.",
+            
+            "Thanks for the comment! It's always helpful to get different perspectives on these AI developments."
+        ]
+        
+        return random.choice(templates)

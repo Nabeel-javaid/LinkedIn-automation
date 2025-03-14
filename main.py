@@ -9,15 +9,17 @@ to LinkedIn using LLM-generated content.
 import os
 import sys
 import time
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 import random
 import argparse
-from datetime import timedelta
+
 
 from dotenv import load_dotenv # type: ignore
 
 from linkedin.auth import LinkedInAuth
 from linkedin.poster import LinkedInPoster
+from linkedin.comment_responder import LinkedInCommentResponder
 from news.fetcher import NewsFetcher
 from news.filter import NewsFilter
 from content.generator import ContentGenerator
@@ -81,12 +83,15 @@ class AINewsBot:
         """Authenticate with LinkedIn"""
         return self.auth.authenticate()
     
-    def run_once(self):
-        """Run one cycle of the news bot"""
+    def run_once(self, force=False):
+        """Run one cycle of the news bot
+        
+        Args:
+            force (bool): If True, ignore minimum time interval check
+        """
         # Check if we should post based on frequency settings
         current_time = time.time()
-        if (self.last_post_time and 
-            (current_time - self.last_post_time) < (self.min_hours_between_posts * 3600)):
+        if not force and self.last_post_time and (current_time - self.last_post_time) < (self.min_hours_between_posts * 3600):
             print(f"Too soon to post again. Waiting until minimum interval of {self.min_hours_between_posts} hours has passed.")
             return False
         
@@ -146,6 +151,9 @@ class AINewsBot:
             # Send notification to Discord
             self.discord.send_post_success(selected_article['title'], quality_score, current_time_str)
             
+            # Start monitoring for comments
+            self.monitor_comments_after_posting(selected_article['title'])
+            
             return True
         else:
             self.analytics.track_failed_post()
@@ -155,6 +163,33 @@ class AINewsBot:
             self.discord.send_post_failure(selected_article['title'], current_time_str)
             
             return False
+    
+    def monitor_comments_after_posting(self, article_title, duration_hours=24):
+        """Start monitoring for comments on LinkedIn posts after posting
+        
+        Args:
+            article_title (str): Title of the article that was shared
+            duration_hours (int): How long to monitor for comments (in hours)
+        """
+        print(f"Setting up comment monitoring for {duration_hours} hours")
+        
+        # Initialize the comment responder
+        responder = LinkedInCommentResponder(
+            auth=self.auth,
+            content_generator=self.content_generator,
+            discord_notifier=self.discord
+        )
+        
+        # Start monitoring in a separate thread
+        monitor_thread = threading.Thread(
+            target=responder.start_monitoring,
+            args=(article_title, None, duration_hours)
+        )
+        monitor_thread.daemon = True
+        monitor_thread.start()
+        
+        print("Comment monitoring started in background")
+        return monitor_thread
     
     def run_scheduler(self, days=30):
         """Run the scheduler for a specified number of days, posting once per day"""
@@ -175,7 +210,7 @@ class AINewsBot:
             # Post immediately for the first run
             if day == 0:
                 print("First run - posting immediately...")
-                success = self.run_once()
+                success = self.run_once(force=True)
                 
                 if success:
                     print(f"Successfully posted for day {day+1}")
@@ -277,14 +312,14 @@ def main():
     args = parse_arguments()
     
     # Check if API keys are set
-    if not os.environ.get('LINKEDIN_CLIENT_ID') or not os.environ.get('LINKEDIN_CLIENT_SECRET'):
-        print("Please set the LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.")
-        sys.exit(1)
+    # if not os.environ.get('LINKEDIN_CLIENT_ID') or not os.environ.get('LINKEDIN_CLIENT_SECRET'):
+    #     print("Please set the LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.")
+    #     sys.exit(1)
         
-    if not os.environ.get('LLM_API_KEY'):
-        print("Please set the LLM_API_KEY environment variable for your chosen LLM provider.")
-        print("Example: export LLM_API_KEY=your-groq-api-key")
-        sys.exit(1)
+    # if not os.environ.get('LLM_API_KEY'):
+    #     print("Please set the LLM_API_KEY environment variable for your chosen LLM provider.")
+    #     print("Example: export LLM_API_KEY=your-groq-api-key")
+    #     sys.exit(1)
     
     if 'newsapi' in os.environ.get('NEWS_SOURCES', '').lower() and not os.environ.get('NEWSAPI_KEY'):
         print("NewsAPI selected but NEWSAPI_KEY not set. This news source will be skipped.")
@@ -297,7 +332,7 @@ def main():
         # Run just once for testing
         print("Running in single post mode...")
         news_bot.discord.send_notification("🔍 LinkedIn AI News Bot started in single post mode")
-        news_bot.run_once()
+        news_bot.run_once(force=True)  # Use force=True to ensure it posts regardless of timing
     elif args.analytics:
         # Show analytics
         if news_bot.auth.access_token or news_bot.authenticate():
