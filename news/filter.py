@@ -9,14 +9,18 @@ class NewsFilter:
         """Initialize with filtering configuration"""
         # Key terms for relevance scoring
         self.key_terms = [
-            'breakthrough', 'new model', 'release', 'advancement', 'state-of-the-art', 
-            'sota', 'performance', 'improvement', 'beats', 'outperforms'
-        ]
-        
-        # Popular models and companies
+        # AI terms
+        'breakthrough', 'new model', 'release', 'advancement', 'state-of-the-art', 
+        'sota', 'performance', 'improvement', 'beats', 'outperforms',
+       
+    ]
+    
+        # Popular models, companies and projects
         self.companies_models = [
+            # AI companies/models
             'openai', 'anthropic', 'claude', 'gpt', 'llama', 'mistral', 
-            'google', 'gemini', 'ai21', 'groq', 'stability'
+            'google', 'gemini', 'ai21', 'groq', 'stability',
+           
         ]
     
     def filter_news(self, articles, posted_articles, max_articles=5):

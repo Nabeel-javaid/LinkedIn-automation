@@ -12,12 +12,13 @@ class Config:
         # RSS feeds and news APIs for AI/LLM updates
         self.news_sources = {
             'rss': [
+                # AI/LLM feeds
                 'https://news.google.com/rss/search?q=artificial+intelligence+llm+when:7d',
                 'https://venturebeat.com/category/ai/feed/',
                 'https://www.reddit.com/r/machinelearning/.rss',
                 'https://www.artificialintelligence-news.com/feed/',
                 'https://blog.research.google/feeds/posts/default?alt=rss',
-                'http://export.arxiv.org/rss/cs.AI'
+                'http://export.arxiv.org/rss/cs.AI',
             ],
             'apis': {
                 'newsapi': {

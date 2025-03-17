@@ -35,17 +35,23 @@ def parse_arguments():
     parser.add_argument('--once', action='store_true', help='Run a single post')
     parser.add_argument('--analytics', action='store_true', help='Show posting analytics')
     parser.add_argument('--days', type=int, default=30, help='Run scheduler for specific number of days')
+    parser.add_argument('--update-interval', type=int, default=30, 
+                        help='Update interval in minutes (default: 30)')
     return parser.parse_args()
 
 class AINewsBot:
     """Main bot class that orchestrates the posting process"""
     
-    def __init__(self):
+    def __init__(self, update_interval_minutes=30):
         """Initialize the LinkedIn AI News Bot"""
         load_dotenv()
         
         # Load config
         self.config = Config()
+        
+        # Set update interval (in minutes)
+        self.update_interval_minutes = update_interval_minutes
+        self.update_interval_seconds = update_interval_minutes * 60
         
         # Initialize Discord notifier
         self.discord = DiscordNotifier()
@@ -227,7 +233,7 @@ class AINewsBot:
                 # Send Discord notification about next day
                 self.discord.send_day_complete(day+1, seconds_until_tomorrow/3600, next_day_time)
                 
-                # Wait until next day with hourly updates
+                # Wait until next day with updates
                 self._wait_with_updates(seconds_until_tomorrow, day+2)
             else:
                 # For subsequent days, post at a random time during the day
@@ -242,7 +248,7 @@ class AINewsBot:
                 # Send Discord notification about scheduled post
                 self.discord.send_schedule_update(day+1, post_delay/3600, scheduled_post_time)
                 
-                # Wait until post time with hourly updates
+                # Wait until post time with updates
                 self._wait_with_updates(post_delay)
                 
                 # Attempt to post
@@ -264,7 +270,7 @@ class AINewsBot:
                 # Send Discord notification about next day
                 self.discord.send_day_complete(day+1, remaining_time/3600, next_day_time)
                 
-                # Wait until next day with hourly updates
+                # Wait until next day with updates
                 self._wait_with_updates(remaining_time, day+2)
             
             day += 1
@@ -276,26 +282,68 @@ class AINewsBot:
         return (tomorrow - now).total_seconds()
     
     def _wait_with_updates(self, wait_seconds, next_day=None):
-        """Wait for specified time with hourly updates and progress bar"""
+        """Wait for specified time with regular updates at configured interval
+        
+        Args:
+            wait_seconds (float): Total seconds to wait
+            next_day (int, optional): Next day number for context
+        """
+        start_time = time.time()
+        end_time = start_time + wait_seconds
         remaining = wait_seconds
+        update_count = 0
+        
         while remaining > 0:
-            # Sleep for 1 hour or remaining time, whichever is less
-            sleep_time = min(3600, remaining)
+            # Sleep for update interval or remaining time, whichever is less
+            sleep_time = min(self.update_interval_seconds, remaining)
             time.sleep(sleep_time)
             remaining -= sleep_time
+            current_time = time.time()
+            elapsed = current_time - start_time
             
-            # Update on time remaining if we still have time left
-            if remaining > 0:
-                hours_left = remaining / 3600
-                if next_day:
-                    print(f"Update: {hours_left:.1f} hours until day {next_day}")
-                else:
-                    print(f"Update: {hours_left:.1f} hours until posting")
-                
-                # Update progress bar
-                progress = int(((wait_seconds - remaining) / wait_seconds) * 20)
-                progress_bar = "█" * progress + "░" * (20 - progress)
-                print(f"Progress: |{progress_bar}| {((wait_seconds - remaining) / wait_seconds) * 100:.1f}%")
+            # Calculate time values for the update
+            hours_left = remaining / 3600
+            minutes_left = (remaining % 3600) / 60
+            percent_complete = (elapsed / wait_seconds) * 100
+            
+            # Format current time and estimated completion time
+            current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            est_completion_time = datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Create status message based on context
+            if next_day:
+                context = f"Day {next_day}"
+                status_msg = f"Waiting: {int(hours_left)}h {int(minutes_left)}m until {context}"
+            else:
+                context = "Next post"
+                status_msg = f"Waiting: {int(hours_left)}h {int(minutes_left)}m until {context}"
+            
+            # Print update to console with a prominent separator
+            print(f"\n{'=' * 50}")
+            print(f"STATUS UPDATE #{update_count+1} - {self.update_interval_minutes}min check")
+            print(f"{'=' * 50}")
+            print(status_msg)
+            print(f"Current time: {current_time_str}")
+            print(f"Target time: {est_completion_time}")
+            
+            # Update progress bar for console
+            progress = int((elapsed / wait_seconds) * 30)  # Longer progress bar for better visibility
+            progress_bar = "█" * progress + "░" * (30 - progress)
+            print(f"Progress: |{progress_bar}| {percent_complete:.1f}%")
+            print(f"{'=' * 50}\n")
+            
+            # Send update to Discord
+            discord_msg = (
+                f"⏱️ **Status Update #{update_count+1}**\n"
+                f"⏳ {status_msg}\n"
+                f"🕐 Current: `{current_time_str}`\n"
+                f"🏁 Target: `{est_completion_time}`\n"
+                f"📊 Progress: `{percent_complete:.1f}%` complete\n"
+                f"```\n|{progress_bar}|\n```"
+            )
+            self.discord.send_notification(discord_msg)
+            
+            update_count += 1
     
     def display_analytics(self):
         """Display analytics about the bot's performance"""
@@ -311,21 +359,23 @@ def main():
     """Main entry point for the application"""
     args = parse_arguments()
     
-    # Check if API keys are set
+    # Check environment variables for required API keys
     # if not os.environ.get('LINKEDIN_CLIENT_ID') or not os.environ.get('LINKEDIN_CLIENT_SECRET'):
-    #     print("Please set the LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.")
-    #     sys.exit(1)
+        # print("Please set the LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.")
+        # sys.exit(1)
         
     # if not os.environ.get('LLM_API_KEY'):
     #     print("Please set the LLM_API_KEY environment variable for your chosen LLM provider.")
     #     print("Example: export LLM_API_KEY=your-groq-api-key")
     #     sys.exit(1)
     
-    if 'newsapi' in os.environ.get('NEWS_SOURCES', '').lower() and not os.environ.get('NEWSAPI_KEY'):
-        print("NewsAPI selected but NEWSAPI_KEY not set. This news source will be skipped.")
+    # if 'newsapi' in os.environ.get('NEWS_SOURCES', '').lower() and not os.environ.get('NEWSAPI_KEY'):
+    #     print("NewsAPI selected but NEWSAPI_KEY not set. This news source will be skipped.")
     
-    # Create the news bot
-    news_bot = AINewsBot()
+    # Create the news bot with custom update interval if specified
+    news_bot = AINewsBot(update_interval_minutes=args.update_interval)
+    
+    print(f"Update interval set to {args.update_interval} minutes")
     
     # Run based on command line arguments
     if args.once:

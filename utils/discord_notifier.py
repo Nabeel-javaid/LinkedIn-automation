@@ -1,4 +1,3 @@
-# utils/discord_notifier.py
 """
 Discord notification module for the LinkedIn AI News Bot
 """
@@ -69,3 +68,41 @@ class DiscordNotifier:
             analytics_message += f"**{key}**: {value}\n"
         
         return self.send_notification(analytics_message)
+    
+    def send_status_update(self, update_number, hours_left, minutes_left, percent_complete, current_time, target_time, context="Next post"):
+        """Send a status update notification with progress information
+        
+        Args:
+            update_number (int): The number of this update in sequence
+            hours_left (int/float): Hours remaining until event
+            minutes_left (int/float): Minutes remaining (fraction of hour)
+            percent_complete (float): Percentage of waiting completed (0-100)
+            current_time (str): Current time as formatted string
+            target_time (str): Target completion time as formatted string
+            context (str): Context of what we're waiting for (e.g., "Next post" or "Day 3")
+        
+        Returns:
+            bool: Success status of notification
+        """
+        # Create progress bar using block characters
+        progress_bar_length = 20
+        filled_blocks = int((percent_complete / 100) * progress_bar_length)
+        empty_blocks = progress_bar_length - filled_blocks
+        progress_bar = "█" * filled_blocks + "░" * empty_blocks
+        
+        # Format the time remaining in a readable way
+        if hours_left < 1:
+            time_remaining = f"{int(minutes_left)} minutes"
+        else:
+            time_remaining = f"{int(hours_left)}h {int(minutes_left)}m"
+        
+        message = (
+            f"⏱️ **Status Update #{update_number}**\n\n"
+            f"⏳ Waiting: {time_remaining} until {context}\n"
+            f"🕒 Current time: `{current_time}`\n"
+            f"🏁 Target time: `{target_time}`\n"
+            f"📊 Progress: `{percent_complete:.1f}%` complete\n"
+            f"```\n{progress_bar} {percent_complete:.1f}%\n```"
+        )
+        
+        return self.send_notification(message)
