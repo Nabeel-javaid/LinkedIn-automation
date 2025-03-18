@@ -35,6 +35,8 @@ class LinkedInAuth:
         # Your LinkedIn ID
         self.person_id = None  # This will be retrieved during authentication
     
+
+    
     def authenticate(self):
         """Start OAuth flow with updated scopes"""
         auth_params = {
