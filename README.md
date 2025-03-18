@@ -129,3 +129,175 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## Disclaimer
 
 This bot is for educational and research purposes. Make sure to comply with LinkedIn's terms of service and API usage guidelines when using this bot.
+
+## Architecture
+
+### Components
+
+- `src/news_fetcher.py`: News aggregation and filtering logic
+- `src/content_generator.py`: LLM-powered content generation
+- `src/linkedin_api.py`: LinkedIn API integration
+- `src/analytics.py`: Performance tracking and reporting
+- `src/scheduler.py`: Scheduling and timing management
+- `src/monitor.py`: Comment monitoring and response system
+
+### Data Flow
+
+1. News Collection → Filtering → Content Generation → Post Creation → Analytics
+2. Parallel processes for comment monitoring and engagement
+3. Asynchronous analytics processing and reporting
+
+## Deployment
+
+### Local Development
+
+1. Set up pre-commit hooks:
+
+```bash
+pre-commit install
+```
+
+2. Run tests:
+
+```bash
+pytest tests/
+```
+
+### Production Deployment
+
+1. Using Docker:
+
+```bash
+docker build -t linkedin-ai-bot .
+docker run -d --env-file .env linkedin-ai-bot
+```
+
+2. Using PM2 (Node.js process manager):
+
+```bash
+pm2 start main.py --name "linkedin-bot" --interpreter python3
+```
+
+3. Using systemd service:
+   Create `/etc/systemd/system/linkedin-bot.service`:
+
+```ini
+[Unit]
+Description=LinkedIn AI News Bot
+After=network.target
+
+[Service]
+User=youruser
+WorkingDirectory=/path/to/linkedin_ai_news_bot
+Environment=PYTHONPATH=/path/to/linkedin_ai_news_bot
+ExecStart=/path/to/venv/bin/python main.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Advanced Configuration
+
+### Content Generation Settings
+
+```python
+# config.py
+CONTENT_SETTINGS = {
+    'max_tokens': 500,
+    'temperature': 0.7,
+    'posting_styles': {
+        'thought_leader': {
+            'tone': 'authoritative',
+            'structure': 'insight + analysis + call-to-action'
+        },
+        # ... other styles
+    }
+}
+```
+
+### Rate Limiting
+
+- LinkedIn API: 100 requests/day per user
+- Content Generation: Configurable based on API provider
+- News Fetching: Adjustable intervals (default: 30 minutes)
+
+## Troubleshooting
+
+### Common Issues
+
+1. API Rate Limits
+
+   - Symptom: 429 Too Many Requests
+   - Solution: Adjust request timing in `config.py`
+
+2. Content Generation Failures
+
+   - Symptom: Empty or invalid content
+   - Solution: Check LLM API key and adjust parameters
+
+3. Scheduling Issues
+   - Symptom: Missed posts
+   - Solution: Verify timezone settings and cron configurations
+
+### Logging
+
+Logs are stored in `logs/` directory:
+
+- `app.log`: General application logs
+- `api.log`: API interaction logs
+- `error.log`: Error tracking
+
+## Best Practices
+
+1. Content Guidelines
+
+   - Maintain professional tone
+   - Avoid controversial topics
+   - Include relevant hashtags
+   - Credit sources appropriately
+
+2. Engagement Strategy
+
+   - Response timing: Within 2-4 hours
+   - Engagement ratio: 1:3 (responses:reactions)
+   - Comment quality threshold: 0.7
+
+3. Performance Optimization
+   - Cache frequently accessed data
+   - Implement exponential backoff
+   - Regular database cleanup
+
+## Monitoring
+
+### Health Checks
+
+- Endpoint: `/health`
+- Metrics: CPU, memory, API status
+- Alerting: Discord + Email
+
+### Performance Metrics
+
+- Post engagement rates
+- API response times
+- Content quality scores
+- System resource usage
+
+## Roadmap
+
+- [ ] Multi-language support
+- [ ] AI-powered image generation
+- [ ] Advanced analytics dashboard
+- [ ] A/B testing framework
+- [ ] Community management features
+
+## Support
+
+For support, please:
+
+1. Check the [FAQ](docs/FAQ.md)
+2. Search [existing issues](https://github.com/yourusername/linkedin_ai_news_bot/issues)
+3. Create a new issue with:
+   - System details
+   - Error logs
+   - Steps to reproduce
