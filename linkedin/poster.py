@@ -4,6 +4,7 @@ LinkedIn posting module
 
 import json
 import requests
+from utils.console import Console, Colors
 
 class LinkedInPoster:
     """Class for posting content to LinkedIn"""
@@ -11,17 +12,18 @@ class LinkedInPoster:
     def __init__(self, auth):
         """Initialize with LinkedIn authentication"""
         self.auth = auth
+        self.last_post_id = None
     
     def create_text_post(self, content):
         """Create a text post to LinkedIn"""
         if not self.auth.access_token:
-            print("Not authenticated. Please run authenticate() first.")
+            Console.warning("Not authenticated. Please run authenticate() first.")
             return False
         
         # Get user profile information to get the correct author format
         user_profile = self.auth.get_user_profile()
         if not user_profile or not self.auth.person_id:
-            print("Could not determine author format")
+            Console.error("Could not determine author format")
             return False
         
         url = f"{self.auth.api_url}/ugcPosts"
@@ -52,9 +54,14 @@ class LinkedInPoster:
         
         if response.status_code in (200, 201):
             post_id = response.json().get('id')
-            print(f"Successfully posted to LinkedIn! Post ID: {post_id}")
+            self.last_post_id = post_id  # Store the post ID for later use
+            Console.success(f"Successfully posted to LinkedIn! Post ID: {post_id}")
             return True
         else:
-            print(f"Failed to post: {response.status_code}")
-            print(f"Response: {response.text}")
+            Console.error(f"Failed to post: {response.status_code}")
+            Console.error(f"Response: {response.text}")
             return False
+            
+    def get_last_post_id(self):
+        """Get the ID of the last created post"""
+        return self.last_post_id

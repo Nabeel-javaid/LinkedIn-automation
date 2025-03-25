@@ -27,6 +27,7 @@ from content.evaluator import ContentEvaluator
 from utils.history import PostingHistory
 from utils.analytics import Analytics
 from utils.discord_notifier import DiscordNotifier
+from utils.console import Console  # Import the new console utility
 from config import Config
 
 def parse_arguments():
@@ -37,14 +38,19 @@ def parse_arguments():
     parser.add_argument('--days', type=int, default=30, help='Run scheduler for specific number of days')
     parser.add_argument('--update-interval', type=int, default=30, 
                         help='Update interval in minutes (default: 30)')
+    parser.add_argument('--verbose', action='store_true', help='Show detailed debug information')
     return parser.parse_args()
 
 class AINewsBot:
     """Main bot class that orchestrates the posting process"""
     
-    def __init__(self, update_interval_minutes=30):
+    def __init__(self, update_interval_minutes=30, verbose=False):
         """Initialize the LinkedIn AI News Bot"""
         load_dotenv()
+        
+        # Set verbose mode
+        if verbose:
+            os.environ['DEBUG'] = '1'
         
         # Load config
         self.config = Config()
@@ -87,6 +93,8 @@ class AINewsBot:
     
     def authenticate(self):
         """Authenticate with LinkedIn"""
+        Console.section("LinkedIn Authentication")
+        Console.info("Opening browser for authentication...")
         return self.auth.authenticate()
     
     def run_once(self, force=False):
@@ -98,46 +106,57 @@ class AINewsBot:
         # Check if we should post based on frequency settings
         current_time = time.time()
         if not force and self.last_post_time and (current_time - self.last_post_time) < (self.min_hours_between_posts * 3600):
-            print(f"Too soon to post again. Waiting until minimum interval of {self.min_hours_between_posts} hours has passed.")
+            hours_to_wait = (self.min_hours_between_posts * 3600 - (current_time - self.last_post_time)) / 3600
+            next_post_time = datetime.fromtimestamp(current_time + hours_to_wait * 3600).strftime('%Y-%m-%d %H:%M:%S')
+            Console.warning(f"Too soon to post again. Waiting {hours_to_wait:.1f} hours until {next_post_time}")
             return False
         
         # Fetch news from all sources
-        print("Fetching news...")
+        Console.section("Fetching News")
+        Console.info("Retrieving articles from configured sources...")
         all_articles = self.news_fetcher.fetch_all_news()
         
         if not all_articles:
-            print("No articles found")
+            Console.error("No articles found")
             return False
         
         # Filter to find the most relevant
-        print("Filtering articles...")
+        Console.section("Filtering Articles")
+        Console.info("Analyzing and ranking articles by relevance...")
         best_articles = self.news_filter.filter_news(all_articles, self.posted_articles)
         
         if not best_articles:
-            print("No suitable articles found after filtering")
+            Console.error("No suitable articles found after filtering")
             return False
         
         # Select one article - either top article or random from top 3
         selected_article = random.choice(best_articles[:3]) if len(best_articles) >= 3 else best_articles[0]
-        print(f"Selected article: {selected_article['title']}")
+        Console.article_info(selected_article)
         
         # Check if it's a weekend and use weekend variation if so
         is_weekend = datetime.now().weekday() >= 5  # 5 and 6 are Saturday and Sunday
         
         # Generate post with LLM
-        print("Generating LinkedIn post...")
+        Console.section("Generating Content")
         if is_weekend:
-            print("Detected weekend - using weekend post style")
+            Console.info("Detected weekend - using weekend post style")
             post_content = self.content_generator.create_post_variation(selected_article, "weekend")
         else:
+            Console.info("Generating engaging LinkedIn post...")
             post_content = self.content_generator.generate_post(selected_article)
         
         # Evaluate post quality
         quality_score = self.content_evaluator.evaluate(post_content, selected_article)
-        print(f"Post quality score: {quality_score}/9")
+        if quality_score >= 7:
+            Console.success(f"Post quality score: {quality_score}/9")
+        elif quality_score >= 5:
+            Console.info(f"Post quality score: {quality_score}/9")
+        else:
+            Console.warning(f"Post quality score: {quality_score}/9")
         
         # Post to LinkedIn
-        print("Posting to LinkedIn...")
+        Console.section("Posting to LinkedIn")
+        Console.info("Submitting post to LinkedIn API...")
         self.analytics.track_post_generated()
         result = self.poster.create_text_post(post_content)
         
@@ -152,7 +171,7 @@ class AINewsBot:
             # Save history
             self.history.save_posting_history(self.posted_articles, self.last_post_time, self.analytics.get_data())
             
-            print("Successfully posted to LinkedIn!")
+            Console.success("Post successfully published to LinkedIn!")
             
             # Send notification to Discord
             self.discord.send_post_success(selected_article['title'], quality_score, current_time_str)
@@ -163,7 +182,7 @@ class AINewsBot:
             return True
         else:
             self.analytics.track_failed_post()
-            print("Failed to post to LinkedIn")
+            Console.error("Failed to post to LinkedIn")
             
             # Send failure notification to Discord
             self.discord.send_post_failure(selected_article['title'], current_time_str)
@@ -177,7 +196,11 @@ class AINewsBot:
             article_title (str): Title of the article that was shared
             duration_hours (int): How long to monitor for comments (in hours)
         """
-        print(f"Setting up comment monitoring for {duration_hours} hours")
+        Console.section("Comment Monitoring")
+        Console.info(f"Setting up comment monitoring for {duration_hours} hours")
+        
+        # Get the post ID of the most recent post
+        post_id = self.poster.get_last_post_id()
         
         # Initialize the comment responder
         responder = LinkedInCommentResponder(
@@ -189,46 +212,47 @@ class AINewsBot:
         # Start monitoring in a separate thread
         monitor_thread = threading.Thread(
             target=responder.start_monitoring,
-            args=(article_title, None, duration_hours)
+            args=(article_title, post_id, duration_hours)
         )
         monitor_thread.daemon = True
         monitor_thread.start()
         
-        print("Comment monitoring started in background")
+        Console.info("Comment monitoring started in background")
         return monitor_thread
     
     def run_scheduler(self, days=30):
         """Run the scheduler for a specified number of days, posting once per day"""
-        print(f"Starting LinkedIn AI News Bot scheduler for {days} days")
+        Console.header(f"Starting LinkedIn AI News Bot for {days} days")
         self.discord.send_bot_started(days)
         
         # First authenticate with LinkedIn
         if not self.auth.access_token:
             if not self.authenticate():
-                print("Authentication failed. Cannot proceed.")
+                Console.error("Authentication failed. Cannot proceed.")
                 self.discord.send_notification("❌ LinkedIn authentication failed. Bot stopped.")
                 return
         
         day = 0
         while day < days:
-            print(f"\n--- Day {day+1} ---")
+            Console.day_header(day+1, days)
             
             # Post immediately for the first run
             if day == 0:
-                print("First run - posting immediately...")
+                Console.info("First run - posting immediately...")
                 success = self.run_once(force=True)
                 
                 if success:
-                    print(f"Successfully posted for day {day+1}")
+                    Console.success(f"Successfully posted for day {day+1}")
                 else:
-                    print(f"Failed to post for day {day+1}")
+                    Console.error(f"Failed to post for day {day+1}")
                 
                 # Calculate time until tomorrow with a small random buffer
                 seconds_until_tomorrow = self._calculate_seconds_until_tomorrow() + random.randint(0, 3600)
                 next_day_time = datetime.fromtimestamp(time.time() + seconds_until_tomorrow).strftime('%Y-%m-%d %H:%M:%S')
                 
-                print(f"Day {day+1} complete. Waiting {seconds_until_tomorrow/3600:.1f} hours until day {day+2}")
-                print(f"Next day begins at: {next_day_time}")
+                Console.section("Day Complete")
+                Console.info(f"Day {day+1} complete. Waiting {seconds_until_tomorrow/3600:.1f} hours until day {day+2}")
+                Console.info(f"Next day begins at: {next_day_time}")
                 
                 # Send Discord notification about next day
                 self.discord.send_day_complete(day+1, seconds_until_tomorrow/3600, next_day_time)
@@ -241,9 +265,10 @@ class AINewsBot:
                 post_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 scheduled_post_time = datetime.fromtimestamp(time.time() + post_delay).strftime('%Y-%m-%d %H:%M:%S')
                 
-                print(f"Current time: {post_time}")
-                print(f"Scheduled post time: {scheduled_post_time}")
-                print(f"Will post in {post_delay/3600:.1f} hours")
+                Console.section("Post Scheduling")
+                Console.info(f"Current time: {post_time}")
+                Console.info(f"Scheduled post time: {scheduled_post_time}")
+                Console.info(f"Will post in {post_delay/3600:.1f} hours")
                 
                 # Send Discord notification about scheduled post
                 self.discord.send_schedule_update(day+1, post_delay/3600, scheduled_post_time)
@@ -252,20 +277,22 @@ class AINewsBot:
                 self._wait_with_updates(post_delay)
                 
                 # Attempt to post
-                print("\nTime to post! Attempting now...")
+                Console.section("Post Attempt")
+                Console.info("Time to post! Attempting now...")
                 success = self.run_once()
                 
                 if success:
-                    print(f"Successfully posted for day {day+1}")
+                    Console.success(f"Successfully posted for day {day+1}")
                 else:
-                    print(f"Failed to post for day {day+1}")
+                    Console.error(f"Failed to post for day {day+1}")
                 
                 # Calculate time until tomorrow with a small random buffer
                 remaining_time = self._calculate_seconds_until_tomorrow() + random.randint(0, 3600)
                 next_day_time = datetime.fromtimestamp(time.time() + remaining_time).strftime('%Y-%m-%d %H:%M:%S')
                 
-                print(f"Day {day+1} complete. Waiting {remaining_time/3600:.1f} hours until day {day+2}")
-                print(f"Next day begins at: {next_day_time}")
+                Console.section("Day Complete")
+                Console.info(f"Day {day+1} complete. Waiting {remaining_time/3600:.1f} hours until day {day+2}")
+                Console.info(f"Next day begins at: {next_day_time}")
                 
                 # Send Discord notification about next day
                 self.discord.send_day_complete(day+1, remaining_time/3600, next_day_time)
@@ -313,44 +340,45 @@ class AINewsBot:
             # Create status message based on context
             if next_day:
                 context = f"Day {next_day}"
-                status_msg = f"Waiting: {int(hours_left)}h {int(minutes_left)}m until {context}"
             else:
                 context = "Next post"
-                status_msg = f"Waiting: {int(hours_left)}h {int(minutes_left)}m until {context}"
             
-            # Print update to console with a prominent separator
-            print(f"\n{'=' * 50}")
-            print(f"STATUS UPDATE #{update_count+1} - {self.update_interval_minutes}min check")
-            print(f"{'=' * 50}")
-            print(status_msg)
-            print(f"Current time: {current_time_str}")
-            print(f"Target time: {est_completion_time}")
-            
-            # Update progress bar for console
-            progress = int((elapsed / wait_seconds) * 30)  # Longer progress bar for better visibility
-            progress_bar = "█" * progress + "░" * (30 - progress)
-            print(f"Progress: |{progress_bar}| {percent_complete:.1f}%")
-            print(f"{'=' * 50}\n")
+            # Print formatted status update
+            Console.status_update(
+                update_count+1,
+                hours_left,
+                minutes_left,
+                percent_complete,
+                current_time_str,
+                est_completion_time,
+                context
+            )
             
             # Send update to Discord
-            discord_msg = (
-                f"⏱️ **Status Update #{update_count+1}**\n"
-                f"⏳ {status_msg}\n"
-                f"🕐 Current: `{current_time_str}`\n"
-                f"🏁 Target: `{est_completion_time}`\n"
-                f"📊 Progress: `{percent_complete:.1f}%` complete\n"
-                f"```\n|{progress_bar}|\n```"
+            self.discord.send_status_update(
+                update_count+1,
+                hours_left,
+                minutes_left,
+                percent_complete,
+                current_time_str,
+                est_completion_time,
+                context
             )
-            self.discord.send_notification(discord_msg)
             
             update_count += 1
     
     def display_analytics(self):
         """Display analytics about the bot's performance"""
+        Console.header("LinkedIn AI News Bot Analytics")
         analytics_data = self.analytics.get_data()
-        print("\n=== LinkedIn AI News Bot Analytics ===")
+        
         for key, value in analytics_data.items():
-            print(f"{key}: {value}")
+            if isinstance(value, list):
+                Console.info(f"{key}:")
+                for item in value:
+                    Console.info(f"  - {item[0]}: {item[1]}")
+            else:
+                Console.info(f"{key}: {value}")
         
         # Send to Discord
         self.discord.send_analytics(analytics_data)
@@ -358,29 +386,21 @@ class AINewsBot:
 def main():
     """Main entry point for the application"""
     args = parse_arguments()
+    verbose = args.verbose
     
-    # Check environment variables for required API keys
-    # if not os.environ.get('LINKEDIN_CLIENT_ID') or not os.environ.get('LINKEDIN_CLIENT_SECRET'):
-        # print("Please set the LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET environment variables.")
-        # sys.exit(1)
-        
-    # if not os.environ.get('LLM_API_KEY'):
-    #     print("Please set the LLM_API_KEY environment variable for your chosen LLM provider.")
-    #     print("Example: export LLM_API_KEY=your-groq-api-key")
-    #     sys.exit(1)
-    
-    # if 'newsapi' in os.environ.get('NEWS_SOURCES', '').lower() and not os.environ.get('NEWSAPI_KEY'):
-    #     print("NewsAPI selected but NEWSAPI_KEY not set. This news source will be skipped.")
+    # Clear the terminal
+    Console.clear()
+    Console.app_banner()
     
     # Create the news bot with custom update interval if specified
-    news_bot = AINewsBot(update_interval_minutes=args.update_interval)
+    news_bot = AINewsBot(update_interval_minutes=args.update_interval, verbose=verbose)
     
-    print(f"Update interval set to {args.update_interval} minutes")
+    Console.info(f"Update interval set to {args.update_interval} minutes")
     
     # Run based on command line arguments
     if args.once:
         # Run just once for testing
-        print("Running in single post mode...")
+        Console.header("Single Post Mode")
         news_bot.discord.send_notification("🔍 LinkedIn AI News Bot started in single post mode")
         news_bot.run_once(force=True)  # Use force=True to ensure it posts regardless of timing
     elif args.analytics:
@@ -389,7 +409,6 @@ def main():
             news_bot.display_analytics()
     else:
         # Run scheduler for specified days
-        print(f"Running scheduler for {args.days} days...")
         news_bot.run_scheduler(days=args.days)
 
 if __name__ == "__main__":

@@ -6,10 +6,11 @@ import webbrowser
 import time
 import threading
 import urllib.parse
-import requests # type: ignore
-import json  # Add this import
+import requests
+import json
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from utils.console import Console, Colors
 
 class LinkedInAuth:
     """Class for handling LinkedIn authentication"""
@@ -35,8 +36,6 @@ class LinkedInAuth:
         # Your LinkedIn ID
         self.person_id = None  # This will be retrieved during authentication
     
-
-    
     def authenticate(self):
         """Start OAuth flow with updated scopes"""
         auth_params = {
@@ -49,8 +48,9 @@ class LinkedInAuth:
         
         auth_url = f"{self.auth_url}?{'&'.join(f'{k}={v}' for k, v in auth_params.items())}"
         
-        print("Opening browser for LinkedIn authentication...")
-        print(f"Authorization URL: {auth_url}")
+        Console.section("LinkedIn Authentication")
+        Console.info("Opening browser for authentication...")
+        Console.info(f"Authorization URL: {Colors.CYAN}{auth_url}{Colors.ENDC}")
         webbrowser.open(auth_url)
         
         # Start local server to receive callback
@@ -59,7 +59,7 @@ class LinkedInAuth:
         server_thread.start()
         
         # Wait for authentication to complete
-        print("Waiting for authentication to complete...")
+        Console.info("Waiting for authentication to complete...")
         while not self.auth_completed:
             time.sleep(1)
         
@@ -74,6 +74,10 @@ class LinkedInAuth:
         server = None
         
         class CallbackHandler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                # Override to prevent default logging
+                Console.debug(f"Callback server: {format % args}")
+            
             def do_GET(self):
                 # Parse the query parameters
                 query = urllib.parse.urlparse(self.path).query
@@ -110,8 +114,8 @@ class LinkedInAuth:
                     """.encode('utf-8')
                     
                     self.wfile.write(error_html)
-                    print(f"\nLinkedIn OAuth Error: {error}")
-                    print(f"Error Description: {error_desc}")
+                    Console.error(f"LinkedIn OAuth Error: {error}")
+                    Console.error(f"Error Description: {error_desc}")
                 else:
                     # Handle unexpected response
                     self.wfile.write(b"Unexpected response from LinkedIn. Check console for details.")
@@ -121,14 +125,14 @@ class LinkedInAuth:
         
         try:
             server = HTTPServer(('localhost', 8000), CallbackHandler)
-            print("Callback server started. Waiting for authentication...")
+            Console.info("Callback server started. Waiting for authentication...")
             server.handle_request()
         except Exception as e:
-            print(f"Error with callback server: {str(e)}")
+            Console.error(f"Error with callback server: {str(e)}")
         finally:
             if server:
                 server.server_close()
-                print("Callback server closed.")
+                Console.info("Callback server closed.")
     
     def _exchange_code_for_token(self, code):
         """Exchange authorization code for access token"""
@@ -145,36 +149,53 @@ class LinkedInAuth:
         if response.status_code == 200:
             token_data = response.json()
             self.access_token = token_data['access_token']
-            print(f"Successfully obtained access token. Expires in {token_data.get('expires_in')} seconds")
-            print(f"Token: {self.access_token[:10]}... (truncated for security)")
+            Console.success(f"Successfully obtained access token. Expires in {token_data.get('expires_in')} seconds")
+            Console.info(f"Token: {self.access_token[:10]}... (truncated for security)")
             return True
         else:
-            print(f"Failed to get access token: {response.status_code}")
-            print(f"Response: {response.text}")
+            Console.error(f"Failed to get access token: {response.status_code}")
+            Console.error(f"Response: {response.text}")
             return False
     
     def get_user_profile(self):
         """Get the user profile information using OpenID Connect"""
         if not self.access_token:
-            print("Not authenticated. Please run authenticate() first.")
+            Console.warning("Not authenticated. Please run authenticate() first.")
             return None
+            
         url = f"{self.api_url}/userinfo"
         headers = {
             'Authorization': f'Bearer {self.access_token}',
             'Content-Type': 'application/json'
         }
+        
         try:
+            Console.info("Retrieving LinkedIn profile...")
             response = requests.get(url, headers=headers)
             
             if response.status_code == 200:
                 data = response.json()
-                print(f"Successfully retrieved profile: {json.dumps(data, indent=2)}")
-                self.person_id = data.get('sub').split(':')[-1] if 'sub' in data else None
+                
+                # Format profile information for better display
+                profile_summary = {
+                    "Name": f"{data.get('given_name', '')} {data.get('family_name', '')}",
+                    "Email": data.get('email', 'Not available'),
+                    "Country": data.get('locale', {}).get('country', 'Unknown')
+                }
+                
+                Console.success("Successfully retrieved LinkedIn profile")
+                for key, value in profile_summary.items():
+                    Console.info(f"{key}: {value}")
+                
+                self.person_id = data.get('sub')
+                if self.person_id:
+                    Console.info(f"LinkedIn Person ID: {self.person_id}")
+                
                 return data
             else:
-                print(f"Failed to get profile: {response.status_code}")
-                print(f"Response: {response.text}")
+                Console.error(f"Failed to get profile: {response.status_code}")
+                Console.debug(f"Response: {response.text}")
                 return None
         except Exception as e:
-            print(f"Error getting profile: {str(e)}")
+            Console.error(f"Error getting profile: {str(e)}")
             return None
